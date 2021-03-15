@@ -61,10 +61,19 @@ static void teardown(void) {
     UA_Server_delete(server);
 }
 
-static void receiveSingleMessage(UA_ByteString buffer, UA_PubSubConnection *connection, UA_NetworkMessage *networkMessage) {
-    if (UA_ByteString_allocBuffer(&buffer, 512) != UA_STATUSCODE_GOOD) {
+static void
+receiveSingleMessage(UA_ByteString buffer, UA_PubSubConnection *connection,
+                     UA_NetworkMessage *networkMessage) {
+    if(UA_ByteString_allocBuffer(&buffer, 512) != UA_STATUSCODE_GOOD) {
         ck_abort_msg("Message buffer allocation failed!");
+        return;
     }
+
+    if(!connection->channel) {
+        ck_abort_msg("No connection established");
+        return;
+    }
+
     UA_StatusCode retval =
         connection->channel->receive(connection->channel, &buffer, NULL, 1000000);
     if(retval != UA_STATUSCODE_GOOD || buffer.length == 0) {
@@ -348,20 +357,24 @@ START_TEST(PublishPDSWithMultipleFieldsAndFixedOffset) {
 static UA_StatusCode
 addPubSubApplicationCallback(UA_Server *server_local, UA_NodeId identifier,
                              UA_ServerCallback callback,
-                             void *data, UA_Double interval_ms, UA_UInt64 *callbackId) {
+                             void *data, UA_Double interval_ms,
+                             UA_DateTime *baseTime, UA_TimerPolicy timerPolicy,
+                             UA_UInt64 *callbackId) {
     UA_StatusCode retval = UA_STATUSCODE_GOOD;
     UA_WriterGroup *writerGroup = (UA_WriterGroup *)data;
     /* User defined threads can be called here. For testing, internal repeated callbacks are used */
     retval = UA_PubSubManager_addRepeatedCallback(server_local,
                                                   (UA_ServerCallback) callback,
                                                   writerGroup, writerGroup->config.publishingInterval,
+                                                  baseTime, timerPolicy,
                                                   &writerGroup->publishCallbackId);
     return retval;
 }
 
 static UA_StatusCode
-changePubSubApplicationCallbackInterval(UA_Server *server_local, UA_NodeId identifier,
-                                        UA_UInt64 callbackId, UA_Double interval_ms) {
+changePubSubApplicationCallback(UA_Server *server_local, UA_NodeId identifier,
+                                UA_UInt64 callbackId, UA_Double interval_ms,
+                                UA_DateTime *baseTime, UA_TimerPolicy timerPolicy) {
     return UA_STATUSCODE_GOOD;
 }
 
@@ -386,7 +399,7 @@ START_TEST(PublishSingleFieldInCustomCallback) {
         writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
         writerGroupConfig.rtLevel = UA_PUBSUB_RT_FIXED_SIZE;
         writerGroupConfig.pubsubManagerCallback.addCustomCallback = addPubSubApplicationCallback;
-        writerGroupConfig.pubsubManagerCallback.changeCustomCallbackInterval = changePubSubApplicationCallbackInterval;
+        writerGroupConfig.pubsubManagerCallback.changeCustomCallback = changePubSubApplicationCallback;
         writerGroupConfig.pubsubManagerCallback.removeCustomCallback = removePubSubApplicationCallback;
         UA_UadpWriterGroupMessageDataType *wgm = UA_UadpWriterGroupMessageDataType_new();
         wgm->networkMessageContentMask = UA_UADPNETWORKMESSAGECONTENTMASK_PAYLOADHEADER;

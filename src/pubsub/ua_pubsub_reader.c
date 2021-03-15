@@ -631,21 +631,27 @@ UA_Server_freezeReaderGroupConfiguration(UA_Server *server, const UA_NodeId read
         if(res != UA_STATUSCODE_GOOD) {
             UA_LOG_WARNING(&server->config.logger, UA_LOGCATEGORY_SERVER,
                            "PubSub RT Offset calculation: DataSetMessage generation failed");
+            UA_DataSetMessage_clear(dsm);
+            UA_free(dsm);
             return UA_STATUSCODE_BADINTERNALERROR;
         }
 
         /* Generate data set messages - Considering 1 DSM as max */
-        UA_UInt16 *dsWriterIds = (UA_UInt16 *) UA_calloc(1, sizeof(UA_UInt16));
+        UA_UInt16 *dsWriterIds = (UA_UInt16 *)UA_calloc(1, sizeof(UA_UInt16));
         if(!dsWriterIds) {
             UA_LOG_ERROR(&server->config.logger, UA_LOGCATEGORY_SERVER,
                          "PubSub RT Offset calculation: DataSetWriterId creation failed");
+            UA_DataSetMessage_clear(dsm);
+            UA_free(dsm);
             return UA_STATUSCODE_BADOUTOFMEMORY;
         }
         *dsWriterIds = dataSetReader->config.dataSetWriterId;
 
-        UA_NetworkMessage *networkMessage = (UA_NetworkMessage *) UA_calloc(1, sizeof(UA_NetworkMessage));
+        UA_NetworkMessage *networkMessage = (UA_NetworkMessage *)UA_calloc(1, sizeof(UA_NetworkMessage));
         if(!networkMessage) {
             UA_free(dsWriterIds);
+            UA_DataSetMessage_clear(dsm);
+            UA_free(dsm);
             UA_LOG_ERROR(&server->config.logger, UA_LOGCATEGORY_SERVER,
                          "PubSub RT Offset calculation: Network message creation failed");
             return UA_STATUSCODE_BADOUTOFMEMORY;
@@ -657,6 +663,7 @@ UA_Server_freezeReaderGroupConfiguration(UA_Server *server, const UA_NodeId read
             UA_free(networkMessage->payload.dataSetPayload.sizes);
             UA_free(networkMessage);
             UA_free(dsWriterIds);
+            UA_DataSetMessage_clear(dsm);
             UA_free(dsm);
             UA_LOG_WARNING(&server->config.logger, UA_LOGCATEGORY_SERVER,
                            "PubSub RT Offset calculation: NetworkMessage generation failed");
@@ -985,6 +992,8 @@ UA_ReaderGroup_addSubscribeCallback(UA_Server *server, UA_ReaderGroup *readerGro
                                                                               (UA_ServerCallback) UA_ReaderGroup_subscribeCallback,
                                                                               readerGroup,
                                                                               readerGroup->config.subscribingInterval,
+                                                                              NULL,                                         // TODO: Send base time from reader group config
+                                                                              UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME,   // TODO: Send timer policy from reader group config
                                                                               &readerGroup->subscribeCallbackId);
     else {
         if (readerGroup->config.enableBlockingSocket == UA_TRUE) {
@@ -997,6 +1006,8 @@ UA_ReaderGroup_addSubscribeCallback(UA_Server *server, UA_ReaderGroup *readerGro
                                                        (UA_ServerCallback) UA_ReaderGroup_subscribeCallback,
                                                        readerGroup,
                                                        readerGroup->config.subscribingInterval,
+                                                       NULL,                                        // TODO: Send base time from reader group config
+                                                       UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME,  // TODO: Send timer policy from reader group config
                                                        &readerGroup->subscribeCallbackId);
     }
 
