@@ -47,6 +47,9 @@
 #endif
 
 #include "time.h"
+#define ETHERTYPE_UADP                       0xb62c
+#define MIN_ETHERNET_PACKET_SIZE_WITHOUT_FCS 60
+#define VLAN_HEADER_SIZE                     4
 
 #ifndef ETHERTYPE_UADP
 #define ETHERTYPE_UADP                       0xb62c
@@ -1032,7 +1035,11 @@ UA_PubSubChannelEthernet_send(UA_PubSubChannel *channel,
     /* Either VLAN or Ethernet */
     ptrCur = bufSend + sizeof(*ethHdr);
     if(channelDataEthernet->vid == 0) {
+<<<<<<< HEAD
         ethHdr->ether_type = htons(ETHERTYPE_UADP);
+=======
+        ethHdr->ether_type =  htons(ETHERTYPE_UADP);
+>>>>>>> 4038a318952e3d7d77a85f205d279cdfabc81930
         lenBuf -= 4;  /* no VLAN tag */
     } else {
         ethHdr->ether_type = htons(ETHERTYPE_VLAN);
