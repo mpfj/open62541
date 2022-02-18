@@ -750,6 +750,42 @@ checkReaderIdentifier(UA_Server *server, UA_NetworkMessage *pMsg, UA_DataSetRead
         return UA_STATUSCODE_BADNOTIMPLEMENTED;
     }
 
+    switch (pMsg->publisherIdType) {
+    case UA_PUBLISHERDATATYPE_BYTE:
+        if(reader->config.publisherId.type == &UA_TYPES[UA_TYPES_BYTE] &&
+           pMsg->publisherIdType == UA_PUBLISHERDATATYPE_BYTE &&
+           pMsg->publisherId.publisherIdByte == *(UA_Byte*)reader->config.publisherId.data)
+            break;
+        return UA_STATUSCODE_BADNOTFOUND;
+    case UA_PUBLISHERDATATYPE_UINT16:
+        if(reader->config.publisherId.type == &UA_TYPES[UA_TYPES_UINT16] &&
+           pMsg->publisherIdType == UA_PUBLISHERDATATYPE_UINT16 &&
+           pMsg->publisherId.publisherIdUInt16 == *(UA_UInt16*)reader->config.publisherId.data)
+            break;
+        return UA_STATUSCODE_BADNOTFOUND;
+    case UA_PUBLISHERDATATYPE_UINT32:
+        if(reader->config.publisherId.type == &UA_TYPES[UA_TYPES_UINT32] &&
+           pMsg->publisherIdType == UA_PUBLISHERDATATYPE_UINT32 &&
+           pMsg->publisherId.publisherIdUInt32 == *(UA_UInt32*)reader->config.publisherId.data)
+            break;
+        return UA_STATUSCODE_BADNOTFOUND;
+    case UA_PUBLISHERDATATYPE_UINT64:
+        if(reader->config.publisherId.type == &UA_TYPES[UA_TYPES_UINT64] &&
+           pMsg->publisherIdType == UA_PUBLISHERDATATYPE_UINT64 &&
+           pMsg->publisherId.publisherIdUInt64 == *(UA_UInt64*)reader->config.publisherId.data)
+            break;
+        return UA_STATUSCODE_BADNOTFOUND;
+    case UA_PUBLISHERDATATYPE_STRING:
+        if(reader->config.publisherId.type == &UA_TYPES[UA_TYPES_STRING] &&
+           pMsg->publisherIdType == UA_PUBLISHERDATATYPE_STRING &&
+           UA_String_equal(&pMsg->publisherId.publisherIdString,
+                           (UA_String*)reader->config.publisherId.data))
+            break;
+        return UA_STATUSCODE_BADNOTFOUND;
+    default:
+        return UA_STATUSCODE_BADNOTFOUND;
+    }
+
     if((reader->config.writerGroupId == pMsg->groupHeader.writerGroupId) &&
        (reader->config.dataSetWriterId == *pMsg->payloadHeader.dataSetPayloadHeader.dataSetWriterIds)) {
         UA_LOG_DEBUG(&server->config.logger, UA_LOGCATEGORY_SERVER,
@@ -1560,7 +1596,6 @@ UA_DataSetReader_process(UA_Server *server, UA_DataSetReader *dataSetReader,
         return;
     }
 
-    UA_ReaderGroup *rg = UA_ReaderGroup_findRGbyId(server, dataSetReader->linkedReaderGroup);
     if(dataSetMsg->header.dataSetMessageType == UA_DATASETMESSAGE_DATAKEYFRAME) {
         //Prepare the raw income
         if(dataSetMsg->header.fieldEncoding == UA_FIELDENCODING_RAWDATA) {
@@ -1606,7 +1641,7 @@ UA_DataSetReader_process(UA_Server *server, UA_DataSetReader *dataSetReader,
             }
 
             UA_StatusCode retVal = UA_STATUSCODE_GOOD;
-            if(rg->config.rtLevel == UA_PUBSUB_RT_FIXED_SIZE) {
+            if(readerGroup->config.rtLevel == UA_PUBSUB_RT_FIXED_SIZE) {
                 for(UA_UInt16 i = 0; i < anzFields; i++) {
                     if(dataSetMsg->data.keyFrameData.dataSetFields[i].hasValue) {
                         if(dataSetReader->config.subscribedDataSet.subscribedDataSetTarget.targetVariables[i].targetVariable.attributeId == UA_ATTRIBUTEID_VALUE) {
@@ -1752,6 +1787,20 @@ UA_DataSetReader_clear(UA_Server *server, UA_DataSetReader *dataSetReader) {
     UA_free(dataSetReader);
 }
 
+static void
+processMessageWithReader(UA_Server *server, UA_ReaderGroup *readerGroup,
+                         UA_DataSetReader *reader, UA_NetworkMessage *msg) {
+    UA_Byte totalDataSets = 1;
+    if(msg->payloadHeaderEnabled)
+        totalDataSets = msg->payloadHeader.dataSetPayloadHeader.count;
+    for(UA_Byte i = 0; i < totalDataSets; i++) {
+        UA_LOG_DEBUG(&server->config.logger, UA_LOGCATEGORY_SERVER,
+                     "Process Msg with DataSetReader!");
+        UA_Server_DataSetReader_process(server, readerGroup, reader,
+                                        &msg->payload.dataSetPayload.dataSetMessages[i]);
+    }
+}
+
 UA_StatusCode
 UA_PubSubConnection_processNetworkMessage(UA_Server *server, UA_PubSubConnection *pConnection,
                                           UA_NetworkMessage* pMsg) {
@@ -1759,18 +1808,28 @@ UA_PubSubConnection_processNetworkMessage(UA_Server *server, UA_PubSubConnection
     if(!pMsg || !pConnection)
         return UA_STATUSCODE_BADINVALIDARGUMENT;
 
-    /* To Do Handle multiple DataSetMessage for one NetworkMessage */
     /* To Do The condition pMsg->dataSetClassIdEnabled
      * Here some filtering is possible */
 
-    UA_DataSetReader *dataSetReader;
-    retval = getReaderFromIdentifier(server, pMsg, &dataSetReader, pConnection);
-    if(retval != UA_STATUSCODE_GOOD) {
-        return retval;
+    if(!msg->publisherIdEnabled) {
+        UA_LOG_INFO(&server->config.logger, UA_LOGCATEGORY_SERVER,
+                    "Cannot process DataSetReader without PublisherId");
+        return UA_STATUSCODE_BADNOTIMPLEMENTED; /* TODO: Handle DSR without PublisherId */
     }
 
-    UA_LOG_DEBUG(&server->config.logger, UA_LOGCATEGORY_SERVER,
-                 "DataSetReader found with PublisherId");
+    UA_Boolean processed = false;
+    UA_ReaderGroup *readerGroup;
+    UA_DataSetReader *reader;
+    /* There can be several readers listening for the same network message */
+    LIST_FOREACH(readerGroup, &connection->readerGroups, listEntry) {
+        LIST_FOREACH(reader, &readerGroup->readers, listEntry) {
+            UA_StatusCode retval = checkReaderIdentifier(server, msg, reader);
+            if(retval == UA_STATUSCODE_GOOD) {
+                processed = true;
+                processMessageWithReader(server, readerGroup, reader, msg);
+            }
+        }
+    }
 
     UA_Byte anzDataSets = 1;
     if(pMsg->payloadHeaderEnabled)
@@ -1785,8 +1844,6 @@ UA_PubSubConnection_processNetworkMessage(UA_Server *server, UA_PubSubConnection
         pMsg->payload.dataSetPayload.dataSetMessages[i].data.keyFrameData.rawFields.data = NULL;
     }
 
-    /* To Do Handle when dataSetReader parameters are null for publisherId
-     * and zero for WriterGroupId and DataSetWriterId */
     return UA_STATUSCODE_GOOD;
 }
 
