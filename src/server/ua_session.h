@@ -76,6 +76,7 @@ typedef struct {
     UA_SessionSecurityDiagnosticsDataType securityDiagnostics;
     UA_SessionDiagnosticsDataType diagnostics;
 #endif
+    UA_SecureChannel *channel;
 } UA_Session;
 
 /**
@@ -90,6 +91,13 @@ UA_StatusCode UA_Session_generateNonce(UA_Session *session);
 
 /* If any activity on a session happens, the timeout is extended */
 void UA_Session_updateLifetime(UA_Session *session);
+
+/**
+ * Utility Functions
+ * ----------------- */
+
+UA_Session *
+UA_Server_getSessionById(UA_Server *server, const UA_NodeId *sessionId);
 
 /**
  * Subscription handling

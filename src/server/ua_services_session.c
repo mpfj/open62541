@@ -235,6 +235,7 @@ UA_Server_createSession(UA_Server *server, UA_SecureChannel *channel,
     UA_Session_init(&newentry->session);
     newentry->session.sessionId = UA_NODEID_GUID(1, UA_Guid_random());
     newentry->session.header.authenticationToken = UA_NODEID_GUID(1, UA_Guid_random());
+    newentry->session.channel = channel;
 
     newentry->session.timeout = server->config.maxSessionTimeout;
     if(request->requestedSessionTimeout <= server->config.maxSessionTimeout &&
